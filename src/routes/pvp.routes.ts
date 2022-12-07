@@ -17,13 +17,11 @@ router.post('/getUsers', pvpController.getUsers);
 
 router.post('/leaveRoom', pvpController.leaveRoom);
 
-router.post('/battle', pvpController.battle);
+router.post('/pvpBattle', pvpController.pvpBattle);
+
+router.post('/users', pvpController.battleUsers)
 
 router.post('/pvpDisconnect', pvpController.pvpDisconnect)
-
-// router.post('/target', pvpController.target);
-
-// router.post('/pickSkill', pvpController.pickSkill);
 
 router.post('/wrongCommand', pvpController.wrongCommand);
 

@@ -51,6 +51,7 @@ interface UserStatus {
     levelup?: boolean;
     pvpRoom?: string;
     chatRoom?: number;
+    isTeam?: string;
 }
 
 interface UserInfo {

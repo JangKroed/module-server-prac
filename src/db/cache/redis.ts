@@ -71,7 +71,7 @@ class RedisCache {
         return output
     }
 
-    async hSetPvp(key: string, data: PvpUser) {
+    async hSetPvpUser(key: string, data: PvpUser) {
         const entries = Object.entries(data);
         const serialize = [];
         for (const entry of entries) {
@@ -116,30 +116,3 @@ class RedisCache {
 }
 
 export default new RedisCache();
-
-// export class RedisCache {
-//     private readonly cache: RedisClientType;
-//     private ttl: number;
-
-//     constructor(ttl: number) {
-
-//         this.ttl = ttl;
-//         this.cache = createClient({
-//             url: `redis://${env.REDIS_USER}:${env.REDIS_PASSWORD}@${env.REDIS_HOST}`
-//         });
-
-//         this.cache.on('connect', () => {
-//             console.log('Redis connected');
-//         });
-
-//         this.cache.on('error', (error) => {
-//             console.log('Redis error, service degraded: ', error);
-//         });
-//     }
-
-//     async get<T>(key: string, fetcher: ()=>Promise<T>): Promise<T> {
-
-//         if (!this.cache.connect) {}
-
-//     }
-// }

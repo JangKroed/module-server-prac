@@ -1,14 +1,10 @@
 import { Request, Response, NextFunction } from 'express';
 import PVP from '../redis';
-import { PvpService } from '../services';
 import { pvpScript } from '../scripts';
 import { HttpException, HttpStatus } from '../common';
 import { PostBody } from '../interfaces/common';
 import { pvpHandler } from '../handler';
-import { pvpController } from '.';
-import { rooms } from '../services/pvp.service';
 import { pvpRoomList } from './pvp.controller';
-import redis from '../db/cache/redis';
 
 export default {
     pvpTalk: (req: Request, res: Response, next: NextFunction) => {

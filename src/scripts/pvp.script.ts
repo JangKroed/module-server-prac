@@ -1,4 +1,3 @@
-import { rooms } from "../services/pvp.service";
 
 export default {
     wrongCommand: (CMD: string | undefined): string => {
@@ -32,8 +31,9 @@ export default {
     ${name}님이 입장하셨습니다.\n\n`
     },
 
-    getUsers:(roomName: string): string => {
-        return `현재 인원은 ${rooms.get(roomName)!.size}명 입니다.\n`
+    coolTimeWrong: (cooltime: number) => {
+       return `=======================================================================\n
+    아직 공격할 수 없습니다. 남은시간은 ${(3000 - cooltime) / 1000}초 입니다.\n`
     },
 
     village: `=======================================================================\n
@@ -60,8 +60,7 @@ export default {
 
     targetWrong: `=======================================================================\n
     샤크스 경 :
-    자신 또는 본인이 속한 팀은 고를 수 없다네 !
-    앗..아아.. 방금 고른 유저는 이미 사망했다네...\n`,
+    사망한 유저 또는 본인이 속한 팀은 고를 수 없다네 !\n`,
 
     pickSkill: `=======================================================================\n
     사용할 스킬을 모두가 고를때까지 기다려주세요.\n`,

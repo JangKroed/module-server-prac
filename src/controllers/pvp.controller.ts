@@ -4,11 +4,10 @@ import { pvpScript } from '../scripts';
 import { HttpException } from '../common';
 import { PostBody } from '../interfaces/common';
 import { pvpHandler } from '../handler'
-import { pvpController } from '.'
-import pvpService, { rooms } from '../services/pvp.service';
+import pvpService from '../services/pvp.service';
 import redis from '../db/cache/redis';
 
-export const maxUsers: number = 2;
+export const maxUsers: number = 4;
 export const pvpRoomList: Set<string> = new Set<string>();
 export default {
     createRoom: async (req: Request, res: Response, next: NextFunction) => {
@@ -32,10 +31,8 @@ export default {
 
             PVP.in(socketId).socketsJoin(roomName);
 
-            PVP.to(socketId).emit('printBattle', { field, userInfo, userStatus: newUserStatus });
             PVP.to(roomName).emit('fieldScriptPrint', { script, field });
-
-            console.log(rooms)
+            PVP.to(socketId).emit('printBattle', { field, userInfo, userStatus: newUserStatus });
 
             res.status(200).end();
         } catch (err) {
@@ -55,8 +52,6 @@ export default {
             const validation = await pvpService.joinRoomValidation(req, res, next, roomName)
             if (validation === 'wrongCommand') return;
 
-            PVP.in(socketId).socketsJoin(roomName);
-
             const newUserStatus = await pvpService.joinRoom({ socketId, CMD, userInfo, userStatus })
 
             const startValidation = await pvpService.startValidation(req, res, next, roomName)
@@ -65,10 +60,9 @@ export default {
             const script = pvpScript.pvpRoomJoin(userInfo!.name);
             const field = 'pvpJoin';
 
-            PVP.to(socketId).emit('printBattle', { field, userInfo, userStatus: newUserStatus });
-            PVP.to(roomName).emit('fieldScriptPrint', { script, field });
 
-            console.log(rooms);
+            PVP.to(roomName).emit('fieldScriptPrint', { script, field });
+            PVP.to(socketId).emit('printBattle', { field, userInfo, userStatus: newUserStatus });
 
             res.status(200).end();
         } catch (err) {
@@ -84,7 +78,9 @@ export default {
             if (!userInfo) new HttpException('userInfo missing', 400);
             if (!userStatus) new HttpException('userStatus missing', 400);
 
-            const script = await pvpService.getUsers(userStatus!.pvpRoom!);
+            const getUsers = await pvpService.getUsers(userStatus!.pvpRoom!);
+
+            const script = `현재 인원은 ${getUsers}명 입니다.\n`
             const field = 'pvpJoin';
 
             PVP.to(socketId).emit('printBattle', { script, userInfo, field, userStatus });
@@ -116,9 +112,10 @@ export default {
         }},
 
     pvpDisconnect:async (req: Request, res: Response, next: NextFunction) => {
-        const { socketId }: PostBody = req.body;
-
-        console.log(`Disconnect : ${socketId}`)
+        const { socketId, option }: PostBody = req.body;
+        if (!option) return;
+        const [ name, roomName ] = option.split(',');
+        await redis.hDel(roomName, name);
 
         res.status(200).end();
     },
@@ -126,17 +123,19 @@ export default {
     pvpStart:async (req: Request, res: Response, next: NextFunction) => {
         try {
             console.log('pvpStart')
-            const { socketId, userInfo, userStatus }: PostBody = req.body;
+            const { socketId, CMD, userInfo, userStatus }: PostBody = req.body;
 
             if (!userInfo) new HttpException('userInfo missing', 400);
             if (!userStatus) new HttpException('userStatus missing', 400);
 
-            const roomName = userStatus!.pvpRoom!;
+            const roomName = userStatus.pvpRoom;
 
-            const script = await pvpService.pvpStart(roomName);
+            const script = await pvpService.pvpStart(userStatus);
             const field = 'pvpBattle';
 
-            PVP.to(roomName).emit('fieldScriptPrint', { script, field });
+            PVP.to(roomName!).emit('fieldScriptPrint', { script, field });
+
+            await pvpService.getSkills(userStatus)
 
             res.status(200).end();
         } catch (err) {
@@ -144,20 +143,31 @@ export default {
         }
     },
 
-    battle: async (req: Request, res: Response, next: NextFunction) => {
+    pvpBattle: async (req: Request, res: Response, next: NextFunction) => {
         try {
             console.log('pvpbattle')
-            const { socketId, userInfo, userStatus }: PostBody = req.body;
+            const { socketId, CMD, userInfo, userStatus }: PostBody = req.body;
+            const [ CMD1, CMD2 ] = CMD.trim().split(' ');
+            const roomName = userStatus.pvpRoom;
 
             if (!userInfo) new HttpException('userInfo missing', 400);
             if (!userStatus) new HttpException('userStatus missing', 400);
 
-            const roomName = userStatus!.pvpRoom!;
+            const battleValidation = pvpService.battleValidation({ socketId, CMD, userInfo, userStatus });
+            if (battleValidation === undefined) return;
 
-            const script = pvpService.pvpStart(roomName);
-            const field = 'enemyChoice';
+            const targetValidation = await pvpService.targetValidation({ socketId, CMD, userInfo, userStatus });
+            if (targetValidation === undefined) return;
 
-            PVP.to(roomName).emit('fieldScriptPrint', { script, field });
+            const battleStart = await pvpService.battleStart({ socketId, CMD, userInfo, userStatus });
+            if (battleStart === undefined) return;
+
+            const script = battleStart;
+            const field = 'pvpBattle';
+
+            PVP.to(roomName!).emit('fieldScriptPrint', { script, field });
+
+            await pvpService.pvpResultValidation({ socketId, CMD, userInfo, userStatus });
 
             res.status(200).end();
         } catch (err) {
@@ -165,109 +175,21 @@ export default {
         }
     },
 
-    // target: async (req: Request, res: Response, next: NextFunction) => {
-    //     try {
-    //         console.log('target')
-    //         const { socketId, CMD, userInfo, userStatus }: PostBody = req.body;
+    battleUsers: async (req: Request, res: Response, next: NextFunction) => {
+        try {
+            console.log('battleUsers')
+            const { socketId, CMD, userInfo, userStatus }: PostBody = req.body;
 
-    //         if (!userInfo) new HttpException('userInfo missing', 400);
-    //         if (!userStatus) new HttpException('userStatus missing', 400);
+            const script = await pvpService.pvpStart(userStatus);
+            const field = `pvpBattle`;
 
-    //         const targetValidation = pvpService.targetValidation(req, res, next);
-    //         if (targetValidation === 'wrong') return;
+            PVP.to(socketId).emit('printBattle', { script, userInfo, field, userStatus });
 
-    //         const script = pvpScript.target;
-    //         const field = 'enemyChoice';
-
-    //         PVP.to(socketId).emit('printBattle', { script, userInfo, field, userStatus });
-
-    //         res.status(200).end();
-    //     } catch (err) {
-    //         next(err);
-    //     }
-    // },
-
-    // targetWrong: (req: Request, res: Response, next: NextFunction) => {
-    //     try {
-    //         console.log('targetWrong')
-    //         const { socketId, CMD, userInfo, userStatus }: PostBody = req.body;
-
-    //         const script = pvpScript.targetWrong;
-    //         const field = 'enemyChoice';
-
-    //         PVP.to(socketId).emit('printBattle', { script, userInfo, field, userStatus });
-
-    //         res.status(200).end();
-    //     } catch (err) {
-    //         next(err);
-    //     }
-    // },
-
-    // // 추후 service에서 script와 names를 array로 return받아 구조분해 할당 후 PVP.to(socketId)
-    // restultTarget: (req: Request, res: Response, next: NextFunction) => {
-    //     try {
-    //         console.log('restultTarget')
-    //         const { socketId, CMD, userInfo, userStatus }: PostBody = req.body;
-
-    //         if (!userInfo) new HttpException('userInfo missing', 400);
-    //         if (!userStatus) new HttpException('userStatus missing', 400);
-
-    //         pvpService.resultTarget(userStatus!)
-    //         pvpService.skillList(userStatus!)
-            
-    //         res.status(200).end();
-    //     } catch (err) {
-    //         next(err);
-    //     }},
-
-    // pickSkill: (req: Request, res: Response, next: NextFunction) => {
-    //     console.log('pickSkill')
-    //     const { socketId, CMD, userInfo, userStatus }: PostBody = req.body;
-
-    //     if (!userInfo) new HttpException('userInfo missing', 400);
-    //     if (!userStatus) new HttpException('userStatus missing', 400);
-
-    //     const pickSkillValidayion = pvpService.pickSkillValidayion(req, res, next)
-    //     if (pickSkillValidayion === undefined) return;
-
-    //     pvpService.pickSkill(req, res, next)
-
-    //     const script = pvpScript.pickSkill;
-    //     const field = 'attackChoice';
-
-    //     PVP.to(socketId).emit('printBattle', { script, userInfo, field, userStatus });
-
-    //     res.status(200).end();
-    // },
-
-    // pvpFight: (req: Request, res: Response, next: NextFunction) => {
-    //     try {
-    //         console.log('pvpfight')
-    //         const { socketId, CMD, userInfo, userStatus }: PostBody = req.body;
-    //         const roomName = userStatus!.pvpRoom
-    //         const pvpRoom = rooms.get(roomName!)
-
-    //         const arranging = pvpService.arranging(userStatus!);
-
-    //         const { where, script, field } = pvpService.pvpResult({ ...arranging, roomName });
-
-    //         setTimeout(() => {
-    //             if (where === 'continue') {
-    //                 PVP.to(roomName!).emit('fieldScriptPrint', { field, script });
-    //                 const request = { body: { socketId, userInfo, userStatus } };
-    //                 return pvpController.pvpStart(request as Request, res, next)
-    //             } else if (where === 'exit') {
-    //                 const socketIds: string[] = [];
-    //                 const iterator = pvpRoom!.values()
-    //                 for (let i = 0; i < maxUsers; i++) socketIds.push(iterator!.next().value.socketId);
-    //                 PVP.in(socketIds).socketsLeave(roomName!)
-    //             }
-    //         }, 3000);
-
-    //         res.status(200).end();
-    //     } catch (err) {
-    //         next(err);
-    //     }},
+            res.status(200).end();
+        } catch (err) {
+            next(err);
+        }
+    },
 
     wrongCommand: (req: Request, res: Response, next: NextFunction) => {
         try {
@@ -303,20 +225,4 @@ export default {
             next(err);
         }
     },
-
-    // wrongPickSkills: (req: Request, res: Response, next: NextFunction) => {
-    //     try {
-    //         console.log('wrongPickSkills')
-    //         const { socketId, CMD, userInfo, userStatus }: PostBody = req.body;
-
-    //         const script = pvpScript.wrongPickSkills(CMD);
-    //         const field = 'attackChoice';
-
-    //         PVP.to(socketId).emit('printBattle', { script, userInfo, field, userStatus });
-
-    //         res.status(200).end();
-    //     } catch (err) {
-    //         next(err);
-    //     }
-    // },
 };
